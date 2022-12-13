@@ -12,6 +12,6 @@ COPY pyproject.toml ./
 COPY poetry.lock ./
 # Install dependencies
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-RUN poetry install && npm install && rm -rf ~/.npm/
+RUN poetry install && npm install && npm i puppeteer && rm -rf ~/.npm/
 COPY . .
 CMD ["npm", "run", "dev"]
