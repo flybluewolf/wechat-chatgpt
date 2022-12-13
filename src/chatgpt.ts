@@ -1,4 +1,4 @@
-import { ChatGPTAPI, ChatGPTConversation } from "chatgpt";
+import { ChatGPTAPI, ChatGPTConversation, getOpenAIAuth } from "chatgpt";
 import { Message } from "wechaty";
 import { config } from "./config.js";
 import { execa } from "execa";
@@ -9,8 +9,10 @@ import {
   IConversationItem,
   AccountWithUserInfo,
   isAccountWithUserInfo,
-  isAccountWithSessionToken,
+  // isAccountWithSessionToken,
+  isAccountWithOpenAIAuth,
   AccountWithSessionToken,
+  AccountWithOpenAIAuth,
   IAccount,
 } from "./interface.js";
 
@@ -50,6 +52,16 @@ export class ChatGPTPoole {
   chatGPTPools: Array<IChatGPTItem> | [] = [];
   conversationsPool: Map<string, IConversationItem> = new Map();
   cache = new Cache("cache.json");
+
+  async getOpenAIAuth(email: string, password: string) {
+    const openAIAuth = await getOpenAIAuth({
+      email: email,
+      password: password
+    });
+
+    return openAIAuth;
+  };
+
   async getSessionToken(email: string, password: string): Promise<string> {
     if (this.cache.get(email)) {
       return this.cache.get(email);
@@ -99,15 +111,17 @@ export class ChatGPTPoole {
       if (chatGPTItem) {
         await this.cache.delete(account.email);
         try {
-          const session_token = await this.getSessionToken(
-            chatGPTItem.account?.email,
-            chatGPTItem.account?.password
-          );
-          chatGPTItem.chatGpt = new ChatGPTAPI({
-            sessionToken: session_token,
-            clearanceToken: config.clearanceToken,
-            userAgent: config.userAgent,
-          });
+          const openAIAuth = await this.getOpenAIAuth(chatGPTItem.account?.email, chatGPTItem.account?.password);
+          // const session_token = await this.getSessionToken(
+          //   chatGPTItem.account?.email,
+          //   chatGPTItem.account?.password
+          // );
+          // chatGPTItem.chatGpt = new ChatGPTAPI({
+          //   sessionToken: session_token,
+          //   clearanceToken: config.clearanceToken,
+          //   userAgent: config.userAgent,
+          // });
+          chatGPTItem.chatGpt = new ChatGPTAPI({ ...openAIAuth })
         } catch (err) {
           //remove this object
           this.chatGPTPools = this.chatGPTPools.filter(
@@ -119,12 +133,12 @@ export class ChatGPTPoole {
           );
         }
       }
-    } else if (isAccountWithSessionToken(account)) {
+    } else if (isAccountWithOpenAIAuth(account)) {
       // Remove all conversation information
       this.conversationsPool.forEach((item, key) => {
         if (
-          (item.account as AccountWithSessionToken)?.session_token ===
-          account.session_token
+          (item.account as AccountWithOpenAIAuth)?.openAIAuth ===
+          account.openAIAuth
         ) {
           this.conversationsPool.delete(key);
         }
@@ -132,8 +146,8 @@ export class ChatGPTPoole {
       // Remove this gptItem
       this.chatGPTPools = this.chatGPTPools.filter(
         (item) =>
-          (item.account as AccountWithSessionToken)?.session_token !==
-          account.session_token
+          (item.account as AccountWithOpenAIAuth)?.openAIAuth !==
+          account.openAIAuth
       );
     }
   }
@@ -141,30 +155,33 @@ export class ChatGPTPoole {
     this.conversationsPool.delete(talkid);
   }
   async startPools() {
-    const sessionAccounts = config.chatGPTAccountPool.filter(
-      isAccountWithSessionToken
+    const openAIAuthAccounts = config.chatGPTAccountPool.filter(
+      isAccountWithOpenAIAuth
     );
     const userAccounts = await Promise.all(
       config.chatGPTAccountPool
         .filter(isAccountWithUserInfo)
         .map(async (account: AccountWithUserInfo) => {
-          const session_token = await this.getSessionToken(
-            account.email,
-            account.password
-          );
+          const openAIAuth = await this.getOpenAIAuth(account.email, account.password);
+          // const session_token = await this.getSessionToken(
+          //   account.email,
+          //   account.password
+          // );
           return {
             ...account,
-            session_token,
+            openAIAuth,
+            // session_token,
           };
         })
     );
-    this.chatGPTPools = [...sessionAccounts, ...userAccounts].map((account) => {
+    this.chatGPTPools = [...openAIAuthAccounts, ...userAccounts].map((account) => {
       return {
-        chatGpt: new ChatGPTAPI({
-          sessionToken: account.session_token,
-          clearanceToken: config.clearanceToken,
-          userAgent: config.userAgent,
-        }),
+        chatGpt: new ChatGPTAPI({ ...account.openAIAuth }),
+        // chatGpt: new ChatGPTAPI({
+        //   sessionToken: account.session_token,
+        //   clearanceToken: config.clearanceToken,
+        //   userAgent: config.userAgent,
+        // }),
         account,
       };
     });
@@ -267,7 +284,7 @@ export class ChatGPTBot {
     console.debug(`🤖️ Start GPT Bot Success, ready to handle message!`);
   }
   // TODO: Add reset conversation id and ping pong
-  async command(): Promise<void> {}
+  async command(): Promise<void> { }
   // remove more times conversation and mention
   cleanMessage(rawText: string, privateChat: boolean = false): string {
     let text = rawText;
